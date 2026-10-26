@@ -27,7 +27,7 @@ jobs:
       - name: 解压网站
         run: |
           mkdir -p site
-          unzip -o "四项修复试运行.zip" -d site
+          unzip -o "外框和白框修复试运行.zip" -d site
           test -f site/index.html
 
       - name: 配置 GitHub Pages
