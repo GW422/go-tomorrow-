@@ -21,8 +21,14 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      - name: 获取网站文件
+      - name: 获取仓库文件
         uses: actions/checkout@v4
+
+      - name: 解压网站
+        run: |
+          mkdir -p site
+          unzip -o go-tomorrow-build.zip -d site
+          test -f site/index.html
 
       - name: 配置 GitHub Pages
         uses: actions/configure-pages@v5
