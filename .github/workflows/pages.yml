@@ -27,7 +27,7 @@ jobs:
       - name: 解压网站
         run: |
           mkdir -p site
-          unzip -o go-tomorrow-build.zip -d site
+          unzip -o "去明天day1修复弹窗试运行.zip" -d site
           test -f site/index.html
 
       - name: 配置 GitHub Pages
