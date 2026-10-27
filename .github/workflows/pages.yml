@@ -26,7 +26,7 @@ jobs:
       - name: 获取仓库文件
         uses: actions/checkout@v4
 
-      - name: 自动识别并合并分包
+      - name: 自动识别 ZIP 或分包并解压
         shell: bash
         run: |
           set -euo pipefail
@@ -35,47 +35,90 @@ jobs:
           from pathlib import Path
           import re
           import zipfile
+          import shutil
 
-          files = [
-              p for p in Path(".").iterdir()
+          root = Path(".")
+          zip_files = sorted(
+              p for p in root.iterdir()
+              if p.is_file() and p.suffix.lower() == ".zip"
+          )
+
+          part_files = [
+              p for p in root.iterdir()
               if p.is_file()
               and re.fullmatch(r".+\.part-\d+", p.name)
           ]
 
-          if not files:
-              raise SystemExit("错误：没有找到分包文件")
+          if zip_files:
+              if len(zip_files) != 1:
+                  raise SystemExit(
+                      "错误：发现多个 ZIP，请只保留最新的网站 ZIP"
+                  )
 
-          groups = {}
-          for p in files:
-              prefix, number = p.name.rsplit(".part-", 1)
-              groups.setdefault(prefix, []).append((int(number), p))
+              source_zip = zip_files[0]
+              print("使用完整 ZIP:", source_zip.name)
 
-          if len(groups) != 1:
-              raise SystemExit("错误：检测到多组分包，请只保留一组")
+          elif part_files:
+              groups = {}
 
-          parts = next(iter(groups.values()))
-          parts.sort()
+              for p in part_files:
+                  prefix, number = p.name.rsplit(".part-", 1)
+                  groups.setdefault(prefix, []).append(
+                      (int(number), p)
+                  )
 
-          numbers = [n for n, _ in parts]
-          if numbers != list(range(1, len(parts) + 1)):
-              raise SystemExit("错误：分包编号不连续")
+              if len(groups) != 1:
+                  raise SystemExit(
+                      "错误：发现多组分包，请只保留一组"
+                  )
 
-          with open("preview.zip", "wb") as output:
-              for number, part in parts:
-                  print("合并:", part.name)
-                  with part.open("rb") as source:
-                      while chunk := source.read(1024 * 1024):
-                          output.write(chunk)
+              parts = next(iter(groups.values()))
+              parts.sort()
 
-          with zipfile.ZipFile("preview.zip") as z:
-              if z.testzip() is not None:
-                  raise SystemExit("错误：ZIP 文件损坏")
-              if "index.html" not in z.namelist():
-                  raise SystemExit("错误：ZIP 根目录缺少 index.html")
-              z.extractall("site")
+              numbers = [n for n, _ in parts]
+
+              if numbers != list(range(1, len(parts) + 1)):
+                  raise SystemExit("错误：分包编号不连续")
+
+              source_zip = Path("assembled-site.zip")
+
+              with source_zip.open("wb") as output:
+                  for number, part in parts:
+                      print("合并:", part.name)
+
+                      with part.open("rb") as source:
+                          shutil.copyfileobj(source, output)
+
+          else:
+              raise SystemExit(
+                  "错误：没有找到 ZIP 或 preview.part-01 等分包"
+              )
+
+          with zipfile.ZipFile(source_zip) as z:
+              bad_file = z.testzip()
+
+              if bad_file is not None:
+                  raise SystemExit(
+                      f"错误：ZIP 文件损坏：{bad_file}"
+                  )
+
+              names = z.namelist()
+
+              if "index.html" not in names:
+                  raise SystemExit(
+                      "错误：ZIP 根目录缺少 index.html，"
+                      "请上传构建成品 ZIP，而不是源代码 ZIP"
+                  )
+
+              site = Path("site")
+              site.mkdir(exist_ok=True)
+
+              z.extractall(site)
 
           Path("site/.nojekyll").touch()
+
           print("网站文件准备完成")
+
           PY
 
       - name: 配置 GitHub Pages
