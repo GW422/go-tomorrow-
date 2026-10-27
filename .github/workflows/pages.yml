@@ -3,6 +3,8 @@ name: 部署去明日预览网站
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -24,20 +26,66 @@ jobs:
       - name: 获取仓库文件
         uses: actions/checkout@v4
 
-      - name: 解压网站
+      - name: 自动识别并合并分包
+        shell: bash
         run: |
-          mkdir -p site
-          unzip -o "备忘录重修试运行.zip" -d site
-          test -f site/index.html
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import zipfile
+
+          files = [
+              p for p in Path(".").iterdir()
+              if p.is_file()
+              and re.fullmatch(r".+\.part-\d+", p.name)
+          ]
+
+          if not files:
+              raise SystemExit("错误：没有找到分包文件")
+
+          groups = {}
+          for p in files:
+              prefix, number = p.name.rsplit(".part-", 1)
+              groups.setdefault(prefix, []).append((int(number), p))
+
+          if len(groups) != 1:
+              raise SystemExit("错误：检测到多组分包，请只保留一组")
+
+          parts = next(iter(groups.values()))
+          parts.sort()
+
+          numbers = [n for n, _ in parts]
+          if numbers != list(range(1, len(parts) + 1)):
+              raise SystemExit("错误：分包编号不连续")
+
+          with open("preview.zip", "wb") as output:
+              for number, part in parts:
+                  print("合并:", part.name)
+                  with part.open("rb") as source:
+                      while chunk := source.read(1024 * 1024):
+                          output.write(chunk)
+
+          with zipfile.ZipFile("preview.zip") as z:
+              if z.testzip() is not None:
+                  raise SystemExit("错误：ZIP 文件损坏")
+              if "index.html" not in z.namelist():
+                  raise SystemExit("错误：ZIP 根目录缺少 index.html")
+              z.extractall("site")
+
+          Path("site/.nojekyll").touch()
+          print("网站文件准备完成")
+          PY
 
       - name: 配置 GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: 上传网站文件
+      - name: 上传网站
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./site
+          path: site
 
-      - name: 发布预览网站
+      - name: 部署预览网站
         id: deployment
         uses: actions/deploy-pages@v4
